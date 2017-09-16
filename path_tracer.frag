@@ -18,6 +18,8 @@ uniform vec4 u_Rand;
 
 const float PI = 2.*acos(0.0);
 
+const vec3 sun_dir = normalize(vec3(0.5, 0.5, 1));
+
 struct HitResult {
 	
 	bool hit;
@@ -178,36 +180,28 @@ vec3 sampleNoise(vec2 uv)
 
 vec3 randomRay(vec3 n, vec3 d, vec2 uv)
 {
-	// vec3 rand = mod(vec3(uv+u_Rand.yx,length(uv+u_Rand.wz))*u_Rand.xyz + sampleNoise(uv+u_Rand.zw).xyz, vec3(1));
 	vec3 rand = mod(sampleNoise(uv+u_Rand.xy).xyz+u_Rand.xyz, vec3(1));
-	// vec3 rand = u_Rand.xyz;
-	// vec3 rand = mod(vec3(u_Rand.yx,length(u_Rand.xz))*u_Rand.xyz + sampleNoise(u_Rand.zw).xyz, vec3(1));
-	// float x = mod(rand, sqrt(2*N));
-	// float y = rand*sqrt(N/2);
-	float theta = 2*PI*rand.x;
-	float phi = acos(rand.y-1)-PI/2;
-	// float phi = PI*rand.y;
-	// float phi = PI*pow(rand.y, 2);
-	float cp = cos(phi);
-	float sp = sin(phi);
-	// float cp = rand.y;
-	// float sp = sin(acos(cp));
-	float ct = cos(theta);
-	float st = sin(theta);
-	vec3 v = vec3(cp*st, sp, cp*ct);
 
-	// float angle = acos(dot(vec3(0,1,0), n));
-	// vec3 axis = cross(vec3(0,1,0), n);
+	vec3 r;
+	// if (rand.x > 0.1 || dot(n, sun_dir)<0)
+	{
+		float theta = 2*PI*rand.x;
+		float phi = acos(rand.y-1)-PI/2;
+		float cp = cos(phi);
+		float sp = sin(phi);
+		float ct = cos(theta);
+		float st = sin(theta);
+		vec3 v = vec3(cp*st, sp, cp*ct);
 
-	// mat3 K = kMatrixFromAxis(axis);
-	// mat3 R = mat3(1) + sin(angle)*K + (1-cos(angle))*K*K;
-	// vec3 r = R*v;
-
-	// vec3 x = normalize(cross(n, mod(rand,vec3(1))));
-	vec3 x = normalize(cross(n, sampleNoise(rand.xy+u_Rand.xy).xyz));
-	vec3 z = normalize(cross(x, n));
-	mat3 M = mat3(x, n, z);
-	vec3 r = M*v;
+		vec3 x = normalize(cross(n, sampleNoise(rand.xy+u_Rand.xy).xyz));
+		vec3 z = normalize(cross(x, n));
+		mat3 M = mat3(x, n, z);
+		r = M*v;
+	}
+	// else
+	// {
+	// 	r = sun_dir;
+	// }
 
 
 	return r;
@@ -234,9 +228,9 @@ void traceScene(vec3 o, vec3 d, inout HitResult hr)
 
 vec3 sampleRM(vec3 d)
 {
-	// vec3 l = normalize(vec3(0.5,0.5,1));
-	// float a = step(.99, dot(d,l));
-	// return mix(0.5*vec3(0.2,0.5,1), 500*vec3(1,0.8,0.5), 1*smoothstep(.99, 1, dot(d,l)));
+	vec3 l = sun_dir; // normalize(vec3(0.5,0.5,1));
+	float a = step(.99, dot(d,l));
+	return mix(0.5*vec3(0.2,0.5,1), 500*vec3(1,0.8,0.5), 1*smoothstep(.99, 1, dot(d,l)));
 	
 	// return 
 	// 	0.1
@@ -244,7 +238,7 @@ vec3 sampleRM(vec3 d)
 	// 	+ 50*vec3(0.5,0,1) * smoothstep(.9, 1, dot(d,normalize(vec3(-1,0.2,-0.5))))
 	// 	;
 
-	return texture2D(u_EnvTexture, dir_to_latlong(d)).xyz;
+	// return texture2D(u_EnvTexture, dir_to_latlong(d)).xyz;
 }
 
 float main_brdf(vec3 l, vec3 v, vec3 n)
@@ -258,8 +252,6 @@ void main()
 {
 	vec2 uv = gl_FragCoord.xy / u_Resolution.xy;
 
-	// vec2 d_xy = 0.99*(mod((1+uv)*u_NumSamples, vec2(1.0)) - 0.5);
-	// vec2 d_xy = 0.999*(mod(uv+u_Rand.zw*u_NumSamples+u_Rand.yx+sampleNoise(uv).xy, vec2(1.0)) - 0.5);
 	vec2 d_xy = 0.99*(mod(uv+u_Rand.zw+u_Rand.yx, vec2(1.0)) - 0.5);
 	vec2 d_uv = d_xy / u_Resolution.xy;
 	uv += d_uv;
@@ -287,9 +279,8 @@ void main()
 
 	if (hr.hit)
 	{
-		vec3 d_r = randomRay(hr.n, sampleNoise(uv+hr.p.xy).xyz, uv);
-		vec3 r = d_r;
-		// vec3 r = normalize(vec3(1,1,0));
+		vec3 r = randomRay(hr.n, sampleNoise(uv+hr.p.xy).xyz, uv);
+
 		HitResult hr2 = GetDefaultHitResult();
 		traceScene(hr.p+0.001*hr.n, r, hr2);
 
@@ -302,31 +293,25 @@ void main()
 			vec3 r2 = randomRay(hr2.n, sampleNoise(uv+hr.p.xy).xyz, uv);
 			traceScene(hr2.p+0.001*hr2.n, r2, hr3);
 
-			// float brdf2 = 0.1*diffuse_brdf(-r, r2, hr2.n) + cooktorr_brdf(-r, r2, hr2.n);
 			float brdf2 = main_brdf(-r, r2, hr2.n);
 			vec3 s1 = hr2.col*brdf2*max(0,dot(hr2.n,r2))/(1+hr2.t*hr2.t);
 
 			if (hr3.hit)
 			{
 				vec3 r3 = randomRay(hr3.n, sampleNoise(uv+hr.p.xy).xyz, uv);
-				// float brdf3 = 0.1*diffuse_brdf(-r2, r3, hr3.n) + cooktorr_brdf(-r2, r3, hr3.n);
 				float brdf3 = main_brdf(-r2, r3, hr3.n);
 				vec3 s2 = hr3.col*brdf3*max(0,dot(hr3.n,r3))/(1+hr3.t*hr3.t);
 				planeCol = sampleRM(r3)*s2*s1*s0;
 			}
 			else
 			{
-				// planeCol = hr.col * hr2.col * f0*f1 * sampleRM(reflect(r, hr2.n));
 				planeCol = sampleRM(r2)*s1*s0;
 			}
 		}
 		else
 		{
 			planeCol = sampleRM(r)*s0;
-			// planeCol = 4*vec3(max(0, dot(hr.n, r))/PI);
 		}
-
-		// planeCol = r;
 	}
 	else 
 	{
@@ -342,11 +327,13 @@ void main()
 		vec3 tex = texture2D(u_Texture, uv).xyz; // previous frame
 		// if (any(isnan(out_col) || isinf(out_col))) out_col = tex;
 		// out_col = ( val < 0.0 || 0.0 < val || val == 0.0 ) ? false : true;
-		out_col = any(lessThanEqual(out_col, vec3(0))) || any(greaterThanEqual(out_col, vec3(0))) ? out_col : tex;
+		// out_col = any(lessThanEqual(out_col, vec3(0))) || any(greaterThanEqual(out_col, vec3(0))) ? out_col : tex;
+		out_col = any(lessThan(out_col-1, out_col)) ? out_col : tex;
 		
 		out_col = (out_col + u_NumSamples*tex) / (u_NumSamples + 1);
-		// out_col = clamp(out_col, 0, 1000000);
 	}
 	
+	// vec3 nan = vec3(0.0/0.0);
+	// out_col = vec3(!any(lessThan(nan-1, nan)));
 	gl_FragColor = vec4(out_col,1.0);
 }

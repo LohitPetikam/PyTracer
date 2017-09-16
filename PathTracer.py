@@ -4,9 +4,10 @@ from glumpy import app, gloo, gl, data, __version__
 import imageio # to read exr files
 
 class PathTracerProgram(object):
-	def __init__(self, resolution):
+	def __init__(self, resolution, env_image):
 		super(PathTracerProgram, self).__init__()
 		self.resolution = resolution;
+		self.env_image = env_image;
 		self.init()
 
 	def init(self):
@@ -19,16 +20,7 @@ class PathTracerProgram(object):
 		self.quad['position'] = [(-1, -1), (-1, +1), (+1, -1), (+1, +1)]
 		self.quad['u_Resolution'] = self.resolution
 
-
-		# print(np.min(rgb),np.max(rgb))
-		# rgb = data.get(ut.full_path('pisa.exr'))
-		# rgb = loadEXRnp(ut.read_file('pisa.exr'))
-		# imageio.help()
-		# imageio.plugins.freeimage.download()
-		# rgb = imageio.imread(ut.full_path('pisa.exr'), 'EXR-FI')
-		# rgb = imageio.imread(ut.full_path('uffizi.exr'), 'EXR-FI')
-		rgb = imageio.imread(ut.full_path('00391_OpenfootageNET_fieldanif_low.exr'), 'EXR-FI')
-		# rgb = imageio.imread(ut.full_path('00391_OpenfootageNET_fieldanif_low.hdr'))
+		rgb = self.env_image
 		print(np.min(rgb), np.max(rgb))
 		self.quad['u_EnvTexture'] = np.asarray(np.flip(np.flip(rgb, axis=0), axis=1)).copy().view(gloo.TextureFloat2D)
 		self.quad['u_EnvTexture'].interpolation = (gl.GL_LINEAR, gl.GL_LINEAR)
@@ -73,6 +65,12 @@ class PathTracerProgram(object):
 		self.num_samples += 1
 		self.quad['u_NumSamples'] = self.num_samples
 		self.quad['u_Rand'] = np.random.uniform(0, 1, 4)
+
+	def ReadPixels(self, x, y, w, h):
+		self.render_fbo.activate()
+		img = gl.glReadPixels(x, y, w, h, gl.GL_RGB, gl.GL_FLOAT)
+		self.render_fbo.deactivate()
+		return img
 
 	def GetTexture(self):
 		return self.render_texture
@@ -131,7 +129,7 @@ class Viewer(object):
 		self.init()
 
 	def init_path_tracer(self):
-		self.render_program = PathTracerProgram(self.window.get_size())
+		self.render_program = PathTracerProgram(self.window.get_size(), self.env_image)
 		self.render_program.UpdateCamera(self.cam_pitch, self.cam_yaw, self.cam_zoom, self.cam_ez)
 		self.output_program.SetTexture(self.render_program.GetTexture())
 
@@ -148,6 +146,10 @@ class Viewer(object):
 		self.cam_yaw = 0
 		self.cam_zoom = 3
 		self.cam_ez = 1
+
+		self.mouse_colour = 0
+
+		self.env_image = imageio.imread(ut.full_path('../TestRMs/00391_OpenfootageNET_fieldanif_low.exr'), 'EXR-FI')
 
 		@self.window.event
 		def on_init():
@@ -194,6 +196,11 @@ class Viewer(object):
 			elif button == 4: # MMB
 				pass
 
+		@self.window.event
+		def on_mouse_motion(x, y, dx, dy):
+			# print('Mouse motion (x=%.1f, y=%.1f, dx=%.1f, dy=%.1f)' % (x,y,dx,dy))
+			self.mouse_colour = self.render_program.ReadPixels(x, self.window.height-y, 1, 1)
+
 		@self.window.timer(1/30.0)
 		def timer(dt):
 			self.console.clear()
@@ -201,6 +208,7 @@ class Viewer(object):
 			self.console.write(" FPS: %.2f (%.2f ms)" % (self.window.fps, 1000.0/(1.0e-6+self.window.fps)))
 			self.console.write(" Samples: %d" % (self.render_program.GetNumSamples()))
 			self.console.write(" Gain: %.2f" % (self.gain))
+			self.console.write(" Mouse colour: {}".format(self.mouse_colour))
 
 		@self.window.event
 		def on_draw(dt):
@@ -234,7 +242,9 @@ class Viewer(object):
 		def on_close():
 			pass
 
-v = Viewer()
-app.run(framerate=0)
-# app.run(framerate=15)
-# app.run(framerate=30)
+def main():
+	v = Viewer()
+	app.run(framerate=0)
+
+if __name__ == '__main__':
+	main()
